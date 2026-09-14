@@ -102,16 +102,17 @@ function BackgroundWorkNotice({
   onCancel: () => void;
   onRequestStop: () => void;
 }) {
+  const commandLabel = commandCount === 1 ? "background command" : "background commands";
+  const agentLabel = agentCount === 1 ? "background agent" : "background agents";
+
   return (
     <div className="grid gap-3 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-3">
       <div>
         <p className="text-sm font-medium">Background work</p>
         <p className="text-xs text-muted-foreground">
-          BB reports {commandCount} background command
-          {commandCount === 1 ? "" : "s"} and {agentCount} background agent
-          {agentCount === 1 ? "" : "s"} in this thread. Stopping it ends all
-          background commands and agents here; it does not close persistent
-          terminal sessions.
+          BB reports {commandCount} {commandLabel} and {agentCount} {agentLabel} in
+          this thread. Stopping it ends all background commands and agents here;
+          it does not close persistent terminal sessions.
         </p>
       </div>
       {confirming ? (

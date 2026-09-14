@@ -12,7 +12,7 @@ does not read or store terminal output.
 ## Install
 
 ```sh
-bb plugin install 'git:https://github.com/liongkj/bb-plugin-close-terminal-button.git@^0.1.2'
+bb plugin install 'git:https://github.com/liongkj/bb-plugin-close-terminal-button.git@^0.1.3'
 ```
 
 For local development, install the checkout instead:
@@ -25,7 +25,7 @@ To migrate an existing local-path installation to the GitHub release:
 
 ```sh
 bb plugin remove close-terminal-button
-bb plugin install 'git:https://github.com/liongkj/bb-plugin-close-terminal-button.git@^0.1.2'
+bb plugin install 'git:https://github.com/liongkj/bb-plugin-close-terminal-button.git@^0.1.3'
 ```
 
 The Git installation tracks compatible `0.1.x` releases. Run `bb plugin update
