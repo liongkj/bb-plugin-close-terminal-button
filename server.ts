@@ -13,12 +13,25 @@ const terminalSummarySchema = z
 
 export type TerminalSummary = z.infer<typeof terminalSummarySchema>;
 
+const backgroundCommandSummarySchema = z
+  .object({
+    id: z.string(),
+    description: z.string(),
+  })
+  .strict();
+
+export type BackgroundCommandSummary = z.infer<
+  typeof backgroundCommandSummarySchema
+>;
+
 export const rpcContract = defineRpcContract({
   terminals_list: {
     input: z.object({ threadId: z.string().min(1) }).strict(),
     output: z
       .object({
         sessions: z.array(terminalSummarySchema),
+        backgroundCommands: z.array(backgroundCommandSummarySchema),
+        backgroundAgentCount: z.number().int().nonnegative(),
         showButton: z.boolean(),
       })
       .strict(),
@@ -31,6 +44,10 @@ export const rpcContract = defineRpcContract({
       })
       .strict(),
     output: terminalSummarySchema,
+  },
+  background_stop: {
+    input: z.object({ threadId: z.string().min(1) }).strict(),
+    output: z.object({ stopped: z.literal(true) }).strict(),
   },
 });
 
@@ -68,12 +85,20 @@ export default function plugin(bb: BbPluginApi) {
       const sessions = result.sessions
         .filter((session) => session.status !== "exited")
         .map(summarizeTerminal);
+      const backgroundCommands = timeline.activeBackgroundCommands.map(
+        (command) => ({
+          id: command.id,
+          description: command.description,
+        }),
+      );
+      const backgroundAgentCount = thread.activeBackgroundAgentCount;
       const hasBackgroundActivity =
-        thread.activeBackgroundAgentCount > 0 ||
-        timeline.activeBackgroundCommands.length > 0;
+        backgroundAgentCount > 0 || backgroundCommands.length > 0;
 
       return {
         sessions,
+        backgroundCommands,
+        backgroundAgentCount,
         showButton: sessions.length > 0 || hasBackgroundActivity,
       };
     },
@@ -89,6 +114,18 @@ export default function plugin(bb: BbPluginApi) {
         mode: "force",
       });
       return summarizeTerminal(closed);
+    },
+
+    background_stop: async ({ threadId }) => {
+      const thread = await bb.sdk.threads.get({ threadId });
+      if (thread.status === "active") {
+        throw new Error(
+          "The thread is actively running. Stop the foreground turn from BB first.",
+        );
+      }
+
+      await bb.sdk.threads.stop({ threadId });
+      return { stopped: true };
     },
   });
 }

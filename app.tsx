@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { definePluginApp, useRpc } from "@get-bb/plugin-sdk/app";
 import type { PluginThreadHeaderActionProps } from "@get-bb/plugin-sdk/app";
-import type { rpcContract, TerminalSummary } from "./server";
+import type {
+  BackgroundCommandSummary,
+  rpcContract,
+  TerminalSummary,
+} from "./server";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -81,16 +85,86 @@ function TerminalRow({
   );
 }
 
+function BackgroundWorkNotice({
+  commandCount,
+  agentCount,
+  confirming,
+  stopping,
+  onConfirm,
+  onCancel,
+  onRequestStop,
+}: {
+  commandCount: number;
+  agentCount: number;
+  confirming: boolean;
+  stopping: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+  onRequestStop: () => void;
+}) {
+  return (
+    <div className="grid gap-3 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-3">
+      <div>
+        <p className="text-sm font-medium">Background work</p>
+        <p className="text-xs text-muted-foreground">
+          BB reports {commandCount} background command
+          {commandCount === 1 ? "" : "s"} and {agentCount} background agent
+          {agentCount === 1 ? "" : "s"} in this thread. Stopping it ends all
+          background commands and agents here; it does not close persistent
+          terminal sessions.
+        </p>
+      </div>
+      {confirming ? (
+        <div className="flex items-center gap-2">
+          <Button
+            variant="destructive"
+            size="sm"
+            disabled={stopping}
+            onClick={onConfirm}
+          >
+            {stopping ? "Stopping…" : "Confirm stop"}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={stopping}
+            onClick={onCancel}
+          >
+            Cancel
+          </Button>
+        </div>
+      ) : (
+        <Button
+          variant="destructive"
+          size="sm"
+          className="w-fit"
+          disabled={stopping}
+          onClick={onRequestStop}
+        >
+          Stop background work
+        </Button>
+      )}
+    </div>
+  );
+}
+
 function CloseTerminalButton({
   threadId,
 }: PluginThreadHeaderActionProps) {
   const rpc = useRpc<typeof rpcContract>();
   const [open, setOpen] = useState(false);
   const [sessions, setSessions] = useState<TerminalSummary[] | null>(null);
+  const [backgroundCommands, setBackgroundCommands] = useState<
+    BackgroundCommandSummary[] | null
+  >(null);
+  const [backgroundAgentCount, setBackgroundAgentCount] = useState(0);
   const [showButton, setShowButton] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [closingId, setClosingId] = useState<string | null>(null);
+  const [confirmingBackgroundStop, setConfirmingBackgroundStop] =
+    useState(false);
+  const [stoppingBackground, setStoppingBackground] = useState(false);
   const requestGeneration = useRef(0);
 
   const loadSessions = useCallback(
@@ -99,6 +173,7 @@ function CloseTerminalButton({
       setError(null);
       if (showLoading) {
         setSessions(null);
+        setBackgroundCommands(null);
       }
       try {
         const result = await rpc.call("terminals_list", { threadId });
@@ -106,6 +181,8 @@ function CloseTerminalButton({
           return;
         }
         setSessions(result.sessions);
+        setBackgroundCommands(result.backgroundCommands);
+        setBackgroundAgentCount(result.backgroundAgentCount);
         setShowButton(result.showButton);
       } catch (cause) {
         if (requestId !== requestGeneration.current) {
@@ -119,10 +196,14 @@ function CloseTerminalButton({
 
   useEffect(() => {
     setSessions(null);
+    setBackgroundCommands(null);
+    setBackgroundAgentCount(0);
     setShowButton(false);
     setError(null);
     setConfirmingId(null);
     setClosingId(null);
+    setConfirmingBackgroundStop(false);
+    setStoppingBackground(false);
   }, [threadId]);
 
   useEffect(() => {
@@ -160,9 +241,25 @@ function CloseTerminalButton({
     [loadSessions, rpc, threadId],
   );
 
+  const stopBackgroundWork = useCallback(async () => {
+    setStoppingBackground(true);
+    setError(null);
+    try {
+      await rpc.call("background_stop", { threadId });
+      setConfirmingBackgroundStop(false);
+      toast.success("Stopped background work");
+      void loadSessions();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setStoppingBackground(false);
+    }
+  }, [loadSessions, rpc, threadId]);
+
   const openDialog = () => {
     setOpen(true);
     setConfirmingId(null);
+    setConfirmingBackgroundStop(false);
     void loadSessions({ showLoading: true });
   };
 
@@ -188,6 +285,7 @@ function CloseTerminalButton({
           setOpen(nextOpen);
           if (!nextOpen) {
             setConfirmingId(null);
+            setConfirmingBackgroundStop(false);
           }
         }}
       >
@@ -196,6 +294,8 @@ function CloseTerminalButton({
             <DialogTitle>Close terminal</DialogTitle>
             <DialogDescription>
               Closing a terminal stops its shell and any process running in it.
+              Stopping background work ends all background commands and agents
+              in this thread.
             </DialogDescription>
           </DialogHeader>
           {error === null ? null : (
@@ -203,26 +303,50 @@ function CloseTerminalButton({
               {error}
             </p>
           )}
-          {sessions === null ? (
-            <p className="text-sm text-muted-foreground">Loading terminals…</p>
-          ) : sessions.length === 0 ? (
+          {sessions === null || backgroundCommands === null ? (
             <p className="text-sm text-muted-foreground">
-              No active terminal sessions belong to this thread.
+              Loading terminal and background activity…
             </p>
           ) : (
-            <ul className="grid gap-2">
-              {sessions.map((session) => (
-                <TerminalRow
-                  key={session.id}
-                  session={session}
-                  confirming={confirmingId === session.id}
-                  closing={closingId === session.id}
-                  onRequestClose={() => setConfirmingId(session.id)}
-                  onCancel={() => setConfirmingId(null)}
-                  onConfirm={() => void closeTerminal(session.id)}
+            <div className="grid gap-4">
+              {sessions.length > 0 ? (
+                <div className="grid gap-2">
+                  <p className="text-sm font-medium">Terminal sessions</p>
+                  <ul className="grid gap-2">
+                    {sessions.map((session) => (
+                      <TerminalRow
+                        key={session.id}
+                        session={session}
+                        confirming={confirmingId === session.id}
+                        closing={closingId === session.id}
+                        onRequestClose={() => setConfirmingId(session.id)}
+                        onCancel={() => setConfirmingId(null)}
+                        onConfirm={() => void closeTerminal(session.id)}
+                      />
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              {backgroundCommands.length > 0 || backgroundAgentCount > 0 ? (
+                <BackgroundWorkNotice
+                  commandCount={backgroundCommands.length}
+                  agentCount={backgroundAgentCount}
+                  confirming={confirmingBackgroundStop}
+                  stopping={stoppingBackground}
+                  onRequestStop={() => setConfirmingBackgroundStop(true)}
+                  onCancel={() => setConfirmingBackgroundStop(false)}
+                  onConfirm={() => void stopBackgroundWork()}
                 />
-              ))}
-            </ul>
+              ) : null}
+              {sessions.length === 0 &&
+              backgroundCommands.length === 0 &&
+              backgroundAgentCount === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No active terminal sessions or background work belong to this
+                  thread.
+                </p>
+              ) : null}
+            </div>
           )}
           <DialogFooter>
             <DialogClose asChild>

@@ -2,8 +2,9 @@
 
 This BB plugin adds an `X` button to a thread header only when that thread has
 an active terminal session or BB background activity. The button opens a small
-terminal list for that thread. Each terminal has its own Close button and
-confirmation step.
+terminal and background-work panel for that thread. Each terminal has its own
+Close button and confirmation step. Background activity has a separate
+confirmation that stops all background commands and agents in the thread.
 
 Closing a terminal stops its shell and any process running in it. The plugin
 does not read or store terminal output.
@@ -11,7 +12,7 @@ does not read or store terminal output.
 ## Install
 
 ```sh
-bb plugin install 'git:https://github.com/liongkj/bb-plugin-close-terminal-button.git@^0.1.1'
+bb plugin install 'git:https://github.com/liongkj/bb-plugin-close-terminal-button.git@^0.1.2'
 ```
 
 For local development, install the checkout instead:
@@ -24,7 +25,7 @@ To migrate an existing local-path installation to the GitHub release:
 
 ```sh
 bb plugin remove close-terminal-button
-bb plugin install 'git:https://github.com/liongkj/bb-plugin-close-terminal-button.git@^0.1.1'
+bb plugin install 'git:https://github.com/liongkj/bb-plugin-close-terminal-button.git@^0.1.2'
 ```
 
 The Git installation tracks compatible `0.1.x` releases. Run `bb plugin update
