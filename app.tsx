@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { definePluginApp, useRpc } from "@get-bb/plugin-sdk/app";
 import type { PluginThreadHeaderActionProps } from "@get-bb/plugin-sdk/app";
 import type { rpcContract, TerminalSummary } from "./server";
@@ -91,18 +91,26 @@ function CloseTerminalButton({
   const [error, setError] = useState<string | null>(null);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [closingId, setClosingId] = useState<string | null>(null);
+  const requestGeneration = useRef(0);
 
   const loadSessions = useCallback(
     async ({ showLoading = false }: { showLoading?: boolean } = {}) => {
+      const requestId = ++requestGeneration.current;
       setError(null);
       if (showLoading) {
         setSessions(null);
       }
       try {
         const result = await rpc.call("terminals_list", { threadId });
+        if (requestId !== requestGeneration.current) {
+          return;
+        }
         setSessions(result.sessions);
         setShowButton(result.showButton);
       } catch (cause) {
+        if (requestId !== requestGeneration.current) {
+          return;
+        }
         setError(cause instanceof Error ? cause.message : String(cause));
       }
     },
@@ -110,11 +118,22 @@ function CloseTerminalButton({
   );
 
   useEffect(() => {
+    setSessions(null);
+    setShowButton(false);
+    setError(null);
+    setConfirmingId(null);
+    setClosingId(null);
+  }, [threadId]);
+
+  useEffect(() => {
     void loadSessions();
     const refreshTimer = window.setInterval(() => {
       void loadSessions();
     }, 5000);
-    return () => window.clearInterval(refreshTimer);
+    return () => {
+      window.clearInterval(refreshTimer);
+      requestGeneration.current += 1;
+    };
   }, [loadSessions]);
 
   const closeTerminal = useCallback(
